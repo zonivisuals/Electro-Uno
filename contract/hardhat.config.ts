@@ -48,6 +48,20 @@ const config: HardhatUserConfig = {
     cache: "./cache",
     artifacts: "./artifacts"
   },
+  
+};
+
+module.exports = {
+  solidity: "0.8.28",
+  abiExporter: {
+    path: './abi',
+    runOnCompile: true,
+    clear: true,
+    only: [':ERC20$'],
+    spacing: 2,
+    pretty: true,
+    format: "minimal",
+  },
 };
 
 export default config;
