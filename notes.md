@@ -1,23 +1,30 @@
 to implement in gameEngine module:
-    - isTurn(player)
-    - isValidPlay(card)
-    - handleDrawCards(n)
-
+    ...
 done: 
+    - initializeGame(players)
+    - playCard(player@, cardId, chosenColor)
     - shuffleDeck(deck)
+    - isValidPlay(card)
+    - drawCards(player@, count)
+    - handleSpecialCards(card, chosenColor)
+    - isTurn(player)
+    - shuffleDeck(deck)
+    - reshuffleDiscardPile()
+    - forceDrawCards(player, count)
     - generateDeck()
     - advanceTurn()
-    - handleSpecialCard(card)
-    - isSpecialCard(card)
+    - handleSpecialCard(card, chosenColor)
+    - getCurrentState()
+    - getCurrentPlayer()
+    - getNextPlayer()
+    - checkWinCondition(player@)
 
 types of cards:
-    
-        - number
-
-        - action:
-            . skip
-            . reverse
-            . draw2
-        -wild:
-            . wild
-            . wild4
+    - number
+    - action:
+        . skip
+        . reverse
+        . draw2
+    -wild:
+        . wild
+        . wild4

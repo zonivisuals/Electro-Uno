@@ -16,13 +16,14 @@ type Player = {
 
 type GameState = {
     currentPlayerIndex: number
-    currentColor: CardColor
     status: 'waiting' | 'active' | 'complete'
     deck: Card[]
     topCard: Card
     direction: 'clockwise' | 'counter-clockwise'
     discardPile: Card[]
     players: Player[]
+    currentColor: CardColor //when wild declaration
+    pendingDraws: number //when draw2 and wild4
 }
 
 export class GameEngine {
@@ -33,7 +34,11 @@ export class GameEngine {
 
     private initializeGame(players: string[]): GameState{
         const currentDeck = this.generateDeck()
-        const shuffledDeck = this.shuffleDeck(deck)
+        const shuffledDeck = this.shuffleDeck(currentDeck)
+
+        //assign the first non-wild card to topcard
+        let topCard = shuffledDeck.find(c => c.type != 'wild') || shuffledDeck[0]
+        shuffledDeck.splice(shuffledDeck.indexOf(topCard),1)
 
         //assign 7 cards to each player
         const gamePlayers: Player[] = players.map(address => ({
@@ -44,69 +49,18 @@ export class GameEngine {
             currentPlayerIndex : 0,
             status : 'active',
             deck : currentDeck,
-            topCard : shuffledDeck.pop() || null,
+            topCard,
             direction : 'clockwise',
-            discardPile : [],
-            players : gamePlayers
+            discardPile : [topCard],
+            players : gamePlayers,
+            currentColor: topCard.color,
+            pendingDraws: 0
         }
-    }
-
-    public playCard(playerAddress: string, cardId: string): boolean{
-        const currentPlayer = this.state.players.find(p => p.address == playerAddress)
-        if(!currentPlayer || !this.isTurn(currentPlayer)) return false
-        
-        const cardIndex = currentPlayer?.hand.findIndex(c => c.id == cardId)
-        if(cardIndex === -1) return false
-        
-        const card = currentPlayer?.hand[cardIndex]
-        if(!this.isValidPlay(card)) return false
-
-        //drop the card
-        currentPlayer.hand.splice(cardIndex, 1)
-        this.state.topCard = card
-        this.state.discardPile.push(card)
-    
-        //handle special card play
-        if(this.isSpecialCard(card)){
-            this.handleSpecialCard(card)
-        }
-
-        this.advanceTurn()
-        return true
-    }
-
-    private handleSpecialCard(card: Card): void{
-        switch(card.value){
-            case "reverse":
-                this.state.direction = this.state.direction === 'clockwise' 
-                ? 'counter-clockwise' 
-                : 'clockwise';
-              break;
-            
-            case "skip":
-                this.advanceTurn()
-                break
-
-            case "draw2":
-                this.handleDrawCards(2)
-                break
-            //will add wild cards later
-        }
-    }   
-
-    private advanceTurn(): void{
-        const increment = this.state.direction === "clockwise" ? 1 : -1
-        this.state.currentPlayerIndex = (this.state.currentPlayerIndex + increment + this.state.players.length) % this.state.players.length
-    }
-
-    private isSpecialCard(card: Card): boolean{
-        if(card.type === "number") return false
-        return true 
     }
 
     private generateDeck(): Card[]{
         const colors: CardColor[] = ['red', 'blue', 'green', 'yellow']
-        const values: CardValue[] = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9']
+        const values: CardValue[] = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'skip', 'reverse', 'draw2', 'wild', 'wild4']
 
         const deck: Card[] = []
 
@@ -144,13 +98,169 @@ export class GameEngine {
 
         return deck;
     }
-        
-    private shuffleDeck(deck: Card[]):void{
-        for(let i=deck.length - 2; i>0; i--){
+
+    private shuffleDeck(deck: Card[]): Card[]{
+        for(let i=deck.length - 1; i>0; i--){
             const j = Math.floor(Math.random()*(i+1))
             const temp = deck[j]
             deck[j] = deck[i]
             deck[i] = temp
         }
+        return deck
     }
-}
+
+    public handleSpecialCard(card: Card, chosenColor: CardColor): void{
+        switch(card.value){
+            case "reverse":
+                this.state.direction = this.state.direction === 'clockwise' 
+                ? 'counter-clockwise' 
+                : 'clockwise';
+              break;
+            
+            case "skip":
+                this.advanceTurn()
+                break
+
+            case "draw2":
+                this.state.pendingDraws+= 2
+                break
+
+            case "wild":
+            case "wild4":
+                if(!chosenColor || chosenColor === 'wild'){
+                    throw new Error('Must choose valid color')
+                }
+                this.state.currentColor = chosenColor
+                if(card.value === 'wild4')
+                    this.state.pendingDraws += 4
+                break
+        }
+    }   
+
+    public playCard(playerAddress: string, cardId: string, chosenColor: CardColor): boolean{
+        const currentPlayer = this.state.players.find(p => p.address == playerAddress)
+        if(!currentPlayer || !this.isTurn(playerAddress)) return false
+        
+        const cardIndex = currentPlayer?.hand.findIndex(c => c.id == cardId)
+        if(cardIndex === -1) return false
+        
+        const card = currentPlayer?.hand[cardIndex]
+        if(!this.isValidPlay(card)) return false
+
+        //handlePending draws
+        if(this.state.pendingDraws > 0){
+            if(card.value !== 'wild4' && card.value !== 'draw2')
+                return false
+        }
+
+        //drop card and update discardPile
+        currentPlayer.hand.splice(cardIndex,1)
+        this.state.discardPile.push(card)
+        this.state.topCard = card
+
+        //handle card effect
+        this.handleSpecialCard(card, chosenColor)
+        
+        //check if winner or UNOer
+        if(currentPlayer.hand.length === 0){
+            this.state.status = 'complete'
+            return true
+        }
+        if(currentPlayer.hand.length === 1) console.log('UNO!')
+    
+
+        this.advanceTurn()
+        return true
+    }
+
+
+    public drawCards(playerAddress: string, count:number = 1): Card[]{
+        if(!this.isTurn(playerAddress) || this.state.pendingDraws > 0) 
+            return []
+        const player = this.state.players.find(p => p.address === playerAddress)
+        const drawnCards: Card[] = []
+
+        while(count > 0 && this.state.deck.length > 0){
+            if(this.state.deck.length === 0)
+                this.reshuffleDiscardPile()
+            drawnCards.push(this.state.deck.pop()!)
+            count--
+        }
+
+        player?.hand.push(...drawnCards)
+        return drawnCards
+    }
+
+    private reshuffleDiscardPile(): void {
+        const currentTopCard = this.state.discardPile.pop()!;
+        this.state.deck = this.shuffleDeck([...this.state.discardPile]);
+        this.state.discardPile = [currentTopCard];
+    }
+
+    private isValidPlay(card: Card): boolean{
+        return card.value === this.state.topCard.value
+                || card.color === this.state.currentColor
+                || card.type === 'wild'
+                || (this.state.topCard.type === 'wild' && card.color === this.state.currentColor)
+    }
+
+    private advanceTurn(): void {
+        const increment = this.state.direction === 'clockwise' ? 1 : -1;
+        let nextIndex = this.state.currentPlayerIndex;
+        
+        // Handle pending draws
+        if (this.state.pendingDraws > 0) {
+          const targetPlayer = this.getNextPlayer();
+          this.forceDrawCards(targetPlayer, this.state.pendingDraws);
+          this.state.pendingDraws = 0;
+          nextIndex = this.state.players.indexOf(targetPlayer);
+        }
+    
+        nextIndex = (nextIndex + increment + this.state.players.length) % 
+                    this.state.players.length;
+        this.state.currentPlayerIndex = nextIndex;
+      }
+    
+      // Force a player to draw cards
+      private forceDrawCards(player: Player, count: number): void {
+        let drawn = 0;
+        while (drawn < count && this.state.deck.length > 0) {
+          if (this.state.deck.length === 0) this.reshuffleDiscardPile();
+          player.hand.push(this.state.deck.pop()!);
+          drawn++;
+        }
+      }
+    
+      public getCurrentState(): GameState {
+        return { 
+          ...this.state,
+          // Clone sensitive arrays
+          deck: [...this.state.deck],
+          discardPile: [...this.state.discardPile],
+          players: this.state.players.map(p => ({
+            ...p,
+            hand: [...p.hand]
+          }))
+        };
+      }
+    
+      public getCurrentPlayer(): Player {
+        return this.state.players[this.state.currentPlayerIndex];
+      }
+    
+      public getNextPlayer(): Player {
+        const increment = this.state.direction === 'clockwise' ? 1 : -1;
+        const nextIndex = (this.state.currentPlayerIndex + increment + 
+                          this.state.players.length) % this.state.players.length;
+        return this.state.players[nextIndex];
+      }
+    
+      public checkWinCondition(playerAddress: string): boolean {
+        const player = this.state.players.find(p => p.address === playerAddress);
+        return !!player && player.hand.length === 0;
+      }
+    
+      private isTurn(playerAddress: string): boolean {
+        return this.getCurrentPlayer().address === playerAddress && this.state.status === 'active';
+      }
+    }
