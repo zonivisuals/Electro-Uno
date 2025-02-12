@@ -1,13 +1,13 @@
-type CardColor = 'red' | 'blue' | 'green' | 'yellow' | 'wild'
+export type CardColor = 'red' | 'blue' | 'green' | 'yellow' | 'wild'
 
 type CardValue = '0' | '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9' | 'skip' | 'reverse' | 'draw2' | 'wild' | 'wild4'  
 
-type Card = {
+export type Card = {
     id: string
     value: CardValue
     color: CardColor
-    type:"number" | "action" | "wild" 
-} 
+    type:"number" | "action" | "wild"
+}
 
 type Player = {
     address: string
@@ -60,7 +60,7 @@ export class GameEngine {
 
     private generateDeck(): Card[]{
         const colors: CardColor[] = ['red', 'blue', 'green', 'yellow']
-        const values: CardValue[] = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'skip', 'reverse', 'draw2', 'wild', 'wild4']
+        const values: CardValue[] = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'skip', 'reverse', 'draw2']
 
         const deck: Card[] = []
 
@@ -109,7 +109,7 @@ export class GameEngine {
         return deck
     }
 
-    public handleSpecialCard(card: Card, chosenColor: CardColor): void{
+    public handleSpecialCard(card: Card, chosenColor?: CardColor): void{
         switch(card.value){
             case "reverse":
                 this.state.direction = this.state.direction === 'clockwise' 
@@ -134,10 +134,12 @@ export class GameEngine {
                 if(card.value === 'wild4')
                     this.state.pendingDraws += 4
                 break
+            default:
+
         }
     }   
 
-    public playCard(playerAddress: string, cardId: string, chosenColor: CardColor): boolean{
+    public playCard(playerAddress: string, cardId: string, chosenColor?: CardColor): boolean{
         const currentPlayer = this.state.players.find(p => p.address == playerAddress)
         if(!currentPlayer || !this.isTurn(playerAddress)) return false
         
@@ -147,10 +149,14 @@ export class GameEngine {
         const card = currentPlayer?.hand[cardIndex]
         if(!this.isValidPlay(card)) return false
 
-        //handlePending draws
+        //temporarly fixed
         if(this.state.pendingDraws > 0){
-            if(card.value !== 'wild4' && card.value !== 'draw2')
-                return false
+            if(card.value !== 'draw2' && card.value!== 'wild4'){
+                this.forceDrawCards(currentPlayer, this.state.pendingDraws)
+                this.state.pendingDraws = 0
+                this.advanceTurn()
+                return false //no cards played
+            }
         }
 
         //drop card and update discardPile
@@ -159,7 +165,7 @@ export class GameEngine {
         this.state.topCard = card
 
         //handle card effect
-        this.handleSpecialCard(card, chosenColor)
+        this.handleSpecialCard(card, chosenColor!)
         
         //check if winner or UNOer
         if(currentPlayer.hand.length === 0){
@@ -173,7 +179,6 @@ export class GameEngine {
         return true
     }
 
-
     public drawCards(playerAddress: string, count:number = 1): Card[]{
         if(!this.isTurn(playerAddress) || this.state.pendingDraws > 0) 
             return []
@@ -186,7 +191,6 @@ export class GameEngine {
             drawnCards.push(this.state.deck.pop()!)
             count--
         }
-
         player?.hand.push(...drawnCards)
         return drawnCards
     }
@@ -208,20 +212,12 @@ export class GameEngine {
         const increment = this.state.direction === 'clockwise' ? 1 : -1;
         let nextIndex = this.state.currentPlayerIndex;
         
-        // Handle pending draws
-        if (this.state.pendingDraws > 0) {
-          const targetPlayer = this.getNextPlayer();
-          this.forceDrawCards(targetPlayer, this.state.pendingDraws);
-          this.state.pendingDraws = 0;
-          nextIndex = this.state.players.indexOf(targetPlayer);
-        }
-    
         nextIndex = (nextIndex + increment + this.state.players.length) % 
                     this.state.players.length;
         this.state.currentPlayerIndex = nextIndex;
       }
     
-      // Force a player to draw cards
+      //force a player to draw cards
       private forceDrawCards(player: Player, count: number): void {
         let drawn = 0;
         while (drawn < count && this.state.deck.length > 0) {
@@ -234,7 +230,7 @@ export class GameEngine {
       public getCurrentState(): GameState {
         return { 
           ...this.state,
-          // Clone sensitive arrays
+          //clone sensitive arrays
           deck: [...this.state.deck],
           discardPile: [...this.state.discardPile],
           players: this.state.players.map(p => ({
@@ -262,5 +258,11 @@ export class GameEngine {
     
       private isTurn(playerAddress: string): boolean {
         return this.getCurrentPlayer().address === playerAddress && this.state.status === 'active';
+      }
+
+
+      //testing purposes
+      public increasePendingDrawsBy(n: number): void{
+        this.state.pendingDraws += n
       }
     }
